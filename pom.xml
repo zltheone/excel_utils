@@ -10,7 +10,7 @@
     </parent>
     <groupId>com.zl</groupId>
     <artifactId>excel-utils</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.2.0</version>
     <name>excel-utils</name>
     <description>ExcelUtils project for Spring Boot</description>
     <properties>
@@ -80,12 +80,8 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <excludes>
-                        <exclude>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok</artifactId>
-                        </exclude>
-                    </excludes>
+                    <includeSystemScope>true</includeSystemScope>
+                    <skip>true</skip>
                 </configuration>
             </plugin>
         </plugins>
