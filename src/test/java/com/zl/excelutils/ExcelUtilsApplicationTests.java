@@ -2,17 +2,13 @@ package com.zl.excelutils;
 
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import com.zl.excelutils.annotations.*;
 import com.zl.excelutils.domain.AdsOcLackMatFillInfoPO;
 import com.zl.excelutils.domain.ExcelVO;
-import com.zl.excelutils.utils.KeyNodeExcelUtils;
-import lombok.Data;
+import com.zl.excelutils.utils.ExcelUtils;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +26,7 @@ class ExcelUtilsApplicationTests {
     void testImport() {
         String filePath = "src/main/resources//excel/test.xlsx";
         // 获取Excel数据信息
-        Map<String, Object> map = KeyNodeExcelUtils.importExcelToList(filePath, AdsOcLackMatFillInfoPO.class);
+        Map<String, Object> map = ExcelUtils.importExcelToList(filePath, AdsOcLackMatFillInfoPO.class);
 
         // 有报错直接返回提示信息
         if (map.get("error") != null) {
@@ -78,9 +74,9 @@ class ExcelUtilsApplicationTests {
         }
         // 直接放入数据集合
         ExcelVO<AdsOcLackMatFillInfoPO> excelVO = new ExcelVO<>(pos);
-        byte[] bytes = KeyNodeExcelUtils.exportExcel(excelVO);  // 返回字节流
+        byte[] bytes = ExcelUtils.exportExcel(excelVO);  // 返回字节流
         String filePath = "src/main/resources/excel/" + fileName;
-        KeyNodeExcelUtils.downloadExcel(excelVO, filePath);  // 输出到指定路径
+        ExcelUtils.downloadExcel(excelVO, filePath);  // 输出到指定路径
     }
 
 

@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
  * @Date: 2021/9/17 11:39
  */
 @Slf4j
-public class KeyNodeExcelUtils {
+public class ExcelUtils {
 
     private static final Integer ROW_ACCESS_WINDOW_SIZE = 100;
 
