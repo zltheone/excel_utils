@@ -11,13 +11,14 @@ import com.zl.excelutils.domain.ExcelVO;
 import com.zl.excelutils.enums.DataTypeDescEnum;
 import com.zl.excelutils.enums.ExcelReEnum;
 import com.zl.excelutils.enums.ExcelValueConvertEnum;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.poi.hssf.usermodel.HSSFDateUtil;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.apache.poi.xssf.usermodel.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.lang.annotation.Annotation;
@@ -31,8 +32,9 @@ import java.util.stream.Collectors;
  * @Description: POI Excel工具类，导入导出都为List<PO>
  * @Date: 2021/9/17 11:39
  */
-@Slf4j
 public class ExcelUtils {
+
+    private static Logger log = LoggerFactory.getLogger(ExcelUtils.class);
 
     private static final Integer ROW_ACCESS_WINDOW_SIZE = 100;
 
@@ -59,7 +61,7 @@ public class ExcelUtils {
             workbook.write(outputStream);
             bytes = outputStream.toByteArray();
         } catch (Exception e) {
-            log.error("导出Excel异常 {}", e);
+            // log.error("导出Excel异常 {}", e);
         } finally {
             try {
                 outputStream.flush();
