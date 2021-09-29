@@ -3,7 +3,6 @@ package com.zl.excelutils.domain;
 import com.zl.excelutils.annotations.*;
 import lombok.Data;
 
-
 @Data
 @ExcelSheetName("欠料补料表")
 public class AdsOcLackMatFillInfoPO {
@@ -16,6 +15,7 @@ public class AdsOcLackMatFillInfoPO {
 
     @ExcelExportHeadName("订单号")
     @ExcelImportNotNull
+    @ExcelJointValueSingle("订单号,欠料物编,补料TP单")
     private String outOrderCode;
 
     @ExcelExportHeadName("物料名称")
@@ -23,6 +23,7 @@ public class AdsOcLackMatFillInfoPO {
 
     @ExcelExportHeadName("欠料物编")
     @ExcelImportNotNull
+    @ExcelJointValueSingle("订单号,欠料物编,补料TP单")
     private String lackMatNo;
 
     @ExcelExportHeadName("大货装柜日期")
@@ -48,6 +49,7 @@ public class AdsOcLackMatFillInfoPO {
 
     @ExcelExportHeadName("补料TP单")
     @ExcelImportNotNull
+    @ExcelJointValueSingle("订单号,欠料物编,补料TP单")
     private String fillTpNo;
 
     @ExcelExportHeadName("补料柜号")
@@ -92,5 +94,8 @@ public class AdsOcLackMatFillInfoPO {
 
     @ExcelImportIgnoreField
     private String excelTpId;
+
+    @ExcelImportIgnoreField
+    private String operator;
 
 }

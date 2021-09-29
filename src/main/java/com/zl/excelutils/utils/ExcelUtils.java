@@ -10,6 +10,7 @@ import com.zl.excelutils.domain.CellValueVO;
 import com.zl.excelutils.domain.ExcelVO;
 import com.zl.excelutils.enums.DataTypeDescEnum;
 import com.zl.excelutils.enums.ExcelReEnum;
+import com.zl.excelutils.enums.ExcelValueConvertEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -35,10 +36,12 @@ public class ExcelUtils {
 
     private static final Integer ROW_ACCESS_WINDOW_SIZE = 100;
 
-    public static String[] parsePatterns = {
+    private static final String[] parsePatterns = {
             "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM",
             "yyyy/MM/dd", "yyyy/MM/dd HH:mm:ss", "yyyy/MM/dd HH:mm", "yyyy/MM",
-            "yyyy.MM.dd", "yyyy.MM.dd HH:mm:ss", "yyyy.MM.dd HH:mm", "yyyy.MM"};
+            "yyyy.MM.dd", "yyyy.MM.dd HH:mm:ss", "yyyy.MM.dd HH:mm", "yyyy.MM",
+            "yyyy年MM月dd日", "yyyy年MM月dd日 HH时mm分ss秒", "yyyy年MM月dd日 HH时mm分", "yyyy年MM月",
+            "yyyyMMdd", "yyyyMMddHHmmss", "yyyyMMddHHmm", "yyyyMM"};
 
     /**
      * 导出Excel工具(一个Sheet使用)
@@ -141,9 +144,10 @@ public class ExcelUtils {
 
     /**
      * 导入Excel，保存为List对象列表
+     * 配合自定义注解校验导入格式，导入的Excel表头需与属性顺序保持一致
      * Param filePath 文件路径
      * Param T: 应用对象
-     * Return Map<String, Object> {data: 导入的数据, error: 错误提示}
+     * Return Map<String, Object> {data: 导入的数据, error: 错误提示, header: 表头名称}
      **/
     public static <T> Map<String, Object> importExcelToList(String filePath, Class<T> tClass) {
         try {
@@ -188,6 +192,7 @@ public class ExcelUtils {
         // 获取对象的属性名列表
         List<Field> fieldsList = getExcelImportFields(tClass);
         StringBuilder header = new StringBuilder();
+        Map<String, List<Object>> singleValueMap = new HashMap();
         // 获取最后一行的num，即总行数
         for (int i = 0; i <= sheet.getLastRowNum(); i++) {
             XSSFRow row = sheet.getRow(i);
@@ -212,6 +217,8 @@ public class ExcelUtils {
             }
             // 使用反射创建对象
             Object o = tClass.newInstance();
+            // 行map, 用于拼接多个联合属性判断的值
+            HashMap<String, String> map = new HashMap<>();
             for (int rol = 0; rol < fieldsList.size(); rol++) {
                 // 获取当列的值
                 Object value = getCellValue(row.getCell(rol));
@@ -225,6 +232,35 @@ public class ExcelUtils {
                 // 调用对象的set方法构建对象
                 if (cellValueVO.getCellValue() != null) {
                     setFieldValueByName(o, field.getName(), cellValueVO.getCellValue());
+                }
+                // 拼接联合判断值的属性内容，空不校验
+                if (field.getAnnotation(ExcelJointValueSingle.class) != null && cellValueVO.getCellValue() != null && StringUtils.isNotBlank(cellValueVO.getCellValue().toString())) {
+                    String key = field.getAnnotation(ExcelJointValueSingle.class).value();
+                    if (map.containsKey(key)) {
+                        String s = map.get(key);
+                        s += cellValueVO.getCellValue().toString();
+                        map.put(key, s);
+                        continue;
+                    }
+                    map.put(key, cellValueVO.getCellValue().toString());
+                }
+            }
+            if (!map.isEmpty()) {
+                // 校验联合判断的属性内容是否重复
+                for (String key : map.keySet()) {
+                    // 是否已存在联合属性的key
+                    if (!singleValueMap.containsKey(key)) {
+                        List<Object> objects = new ArrayList<>();
+                        objects.add(map.get(key));
+                        singleValueMap.put(key, objects);
+                        continue;
+                    }
+                    // 是否包含联合属性内容
+                    if (singleValueMap.get(key).contains(map.get(key))) {
+                        errorList.add("第" + (i + 1) + "行【" + key + "】存在重复内容");
+                        continue;
+                    }
+                    singleValueMap.get(key).add(map.get(key));
                 }
             }
             data.add((T) o);
@@ -243,8 +279,8 @@ public class ExcelUtils {
      **/
     private static CellValueVO verifyField(Field field, Object cellValue) {
         CellValueVO vo = new CellValueVO();
+        ArrayList<String> errorList = new ArrayList<>();
         Annotation[] annotations = field.getAnnotations();
-        StringBuilder error = new StringBuilder();
         String cs = (cellValue != null ? cellValue.toString() : "").trim();
         for (Annotation annotation : annotations) {
             String type = annotation.annotationType().getSimpleName();
@@ -252,7 +288,7 @@ public class ExcelUtils {
                 continue;
             }
             if (type.equals("ExcelImportNotNull") && StringUtils.isBlank(cs)) {
-                error.append("不能为空");
+                errorList.add("不能为空");
                 continue;
             }
             // 只判断属性指定条件，单元格可为空，空不返回错误
@@ -260,7 +296,7 @@ public class ExcelUtils {
                 String value = field.getAnnotation(ExcelAssignValue.class).value();
                 String[] strings = value.split(",");
                 if (!Arrays.asList(strings).contains(cs)) {
-                    error.append("必须在指定范围【").append(value).append("】内");
+                    errorList.add("必须在指定范围【" + value + "】内");
                 }
                 continue;
             }
@@ -269,24 +305,41 @@ public class ExcelUtils {
                 String dateFormat = field.getAnnotation(ExcelRequestDate.class).value();
                 try {
                     // 判断是否为日期后转换成指定的格式
-                    DateTime date = DateUtil.parse(cs);
+                    DateTime date = DateUtil.parse(cs, parsePatterns);
                     cellValue = DateUtil.format(date, dateFormat);
-                    break;
                 } catch (DateException e) {
-                    error.append("日期格式必须为【").append(dateFormat).append("】");
+                    errorList.add("日期格式必须为【" + dateFormat + "】");
                 }
+                continue;
             }
             // 只判断正则，可为正则数组，满足其一不报错，单元格可为空，空不返回错误
             if (type.equals("ExcelReValue") && StringUtils.isNotBlank(cs)) {
                 ExcelReEnum[] reEnums = field.getAnnotation(ExcelReValue.class).value();
                 if (Arrays.stream(reEnums).noneMatch(r -> ReUtil.isMatch(r.getRe(), cs))) {
                     for (int i = 0; i < reEnums.length; i++) {
+                        StringBuilder builder = new StringBuilder();
                         if (i == 0) {
-                            error.append("格式不正确,必须为【").append(reEnums[i].getDesc()).append("】");
+                            builder.append("格式不正确,必须为【").append(reEnums[i].getDesc()).append("】");
                         } else {
-                            error.append("或者【").append(reEnums[i].getDesc()).append("】");
+                            builder.append("或者【").append(reEnums[i].getDesc()).append("】");
                         }
+                        errorList.add(builder.toString());
                     }
+                }
+                continue;
+            }
+            // 判断内容是否需要转换, 单元格可为空，空不返回错误
+            if (type.equals("ExcelValueConvert") && StringUtils.isNotBlank(cs)) {
+                ExcelValueConvertEnum[] values = field.getAnnotation(ExcelValueConvert.class).value();
+                boolean flag = true;
+                for (ExcelValueConvertEnum convertEnum : values) {
+                    if (cs.equals(convertEnum.getKey())) {
+                        cellValue = convertEnum.getValue();
+                        flag = false;
+                    }
+                }
+                if (flag) {
+                    errorList.add("【" + cs + "】" + "找不到对应格式的转换");
                 }
             }
         }
@@ -296,11 +349,11 @@ public class ExcelUtils {
             try {
                 cellValue = Convert.convert(field.getGenericType(), cellValue);
             } catch (Exception e) {
-                error.append("单元格格式不正确,请输入【").append(DataTypeDescEnum.getDescByCode(typeName)).append("】");
+                errorList.add("单元格格式不正确,请输入【" + DataTypeDescEnum.getDescByCode(typeName) + "】");
                 log.error("转换属性【{}】类型【{}】To 【{}】,单元格内容【{}】, 异常:{}", field.getName(), cellValue.getClass().getName(), typeName, cellValue, e);
             }
         }
-        vo.setCellError(error.toString());
+        vo.setCellError(StringUtils.join(errorList, ","));
         vo.setCellValue(cellValue);
         return vo;
     }
@@ -316,7 +369,8 @@ public class ExcelUtils {
         // 判断空行 这里加了格式(如边框线等)的行不会被判断为null，需要另加判断所有列是否为空
         for (int rol = 0; rol <= row.getLastCellNum(); rol++) {
             XSSFCell cell = row.getCell(rol);
-            if (cell != null && StringUtils.isNotBlank(cell.getRawValue())) {
+            Object value = getCellValue(cell);
+            if (cell != null && value != null && StringUtils.isNotBlank(value.toString())) {
                 return false;
             }
         }
@@ -490,7 +544,7 @@ public class ExcelUtils {
     /**
      * 设置表头样式
      **/
-    private static XSSFCellStyle getHeaderStyle(XSSFWorkbook workbook){
+    private static XSSFCellStyle getHeaderStyle(XSSFWorkbook workbook) {
         XSSFCellStyle style = workbook.createCellStyle();
         XSSFFont font = workbook.createFont();
         // font.setBold(true); // 加粗
@@ -508,7 +562,7 @@ public class ExcelUtils {
     /**
      * 加四周边框且居中的样式
      **/
-    private static XSSFCellStyle getBorderCenterStyle(XSSFWorkbook workbook){
+    private static XSSFCellStyle getBorderCenterStyle(XSSFWorkbook workbook) {
         XSSFCellStyle style = workbook.createCellStyle();
         setCellAllBorder(style);  // 加四周边框
         style.setAlignment(HorizontalAlignment.CENTER); // 水平居中
@@ -519,7 +573,7 @@ public class ExcelUtils {
     /**
      * 只加四周边框的样式
      **/
-    private static XSSFCellStyle getBorderStyle(XSSFWorkbook workbook){
+    private static XSSFCellStyle getBorderStyle(XSSFWorkbook workbook) {
         XSSFCellStyle style = workbook.createCellStyle();
         setCellAllBorder(style);  // 加四周边框
         return style;
@@ -528,12 +582,11 @@ public class ExcelUtils {
     /**
      * 加四周边框
      **/
-    private static void setCellAllBorder(XSSFCellStyle style){
+    private static void setCellAllBorder(XSSFCellStyle style) {
         style.setBorderTop(BorderStyle.THIN);
         style.setBorderBottom(BorderStyle.THIN);
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
     }
-
 
 }
