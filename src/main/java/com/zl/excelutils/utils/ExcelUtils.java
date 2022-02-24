@@ -8,17 +8,20 @@ import cn.hutool.core.util.ReUtil;
 import com.zl.excelutils.annotations.*;
 import com.zl.excelutils.domain.CellValueVO;
 import com.zl.excelutils.domain.ExcelVO;
+import com.zl.excelutils.domain.MergeExcelVO;
 import com.zl.excelutils.enums.DataTypeDescEnum;
 import com.zl.excelutils.enums.ExcelReEnum;
 import com.zl.excelutils.enums.ExcelValueConvertEnum;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.poi.hssf.usermodel.HSSFCell;
 import org.apache.poi.hssf.usermodel.HSSFDateUtil;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.apache.poi.xssf.usermodel.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
 import java.lang.annotation.Annotation;
@@ -32,11 +35,10 @@ import java.util.stream.Collectors;
  * @Description: POI Excel工具类，导入导出都为List<PO>
  * @Date: 2021/9/17 11:39
  */
+@Slf4j
 public class ExcelUtils {
 
-    private static Logger log = LoggerFactory.getLogger(ExcelUtils.class);
-
-    private static final Integer ROW_ACCESS_WINDOW_SIZE = 100;
+    private static final Integer ROW_ACCESS_WINDOW_SIZE = 1024;
 
     private static final String[] parsePatterns = {
             "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM",
@@ -61,7 +63,7 @@ public class ExcelUtils {
             workbook.write(outputStream);
             bytes = outputStream.toByteArray();
         } catch (Exception e) {
-            // log.error("导出Excel异常 {}", e);
+            log.error("导出Excel异常 {}", e);
         } finally {
             try {
                 outputStream.flush();
@@ -103,6 +105,86 @@ public class ExcelUtils {
         return bytes;
     }
 
+    /**
+     * 导出Excel工具(动态合并表头)
+     * param: excelVOS : excel工具对象列表, 一个Sheet对应一个ExcelVO
+     * return 字节数组
+     **/
+    public static <T> byte[] exportMergeHeadExcel(List<MergeExcelVO> mergeExcelVOS, ExcelVO<T> excelVO) {
+        byte[] bytes = null;
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            // 创建工作簿
+            SXSSFWorkbook workbook = new SXSSFWorkbook(ROW_ACCESS_WINDOW_SIZE);
+            createMergeHeadSheetData(workbook.getXSSFWorkbook(), mergeExcelVOS, excelVO);
+            workbook.write(outputStream);
+            bytes = outputStream.toByteArray();
+        } catch (Exception e) {
+            log.error("导出Excel异常 {}", e);
+        } finally {
+            try {
+                outputStream.flush();
+                outputStream.close();
+            } catch (Exception e) {
+                log.error("exportExcel关闭流异常 {}", e);
+            }
+        }
+        return bytes;
+    }
+
+
+    /**
+     * 导出Excel工具(一个Sheet使用)
+     * param: map{"head": List<Map<String, Object>>, "datas": List<Map<String, Object>}
+     * return 字节数组
+     **/
+    public static byte[] exportExcel(Map map) {
+        byte[] bytes = null;
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            // 创建工作簿
+            XSSFWorkbook workbook = new SXSSFWorkbook(ROW_ACCESS_WINDOW_SIZE).getXSSFWorkbook();
+            createData(workbook, map);
+            workbook.write(outputStream);
+            // 返回字节流
+            bytes = outputStream.toByteArray();
+        } catch (Exception e) {
+            log.error("导出Excel异常 {}", e);
+        } finally {
+            try {
+                outputStream.flush();
+                outputStream.close();
+            } catch (Exception e) {
+                log.error("exportExcel关闭流异常 {}", e);
+            }
+        }
+        return bytes;
+    }
+
+
+    /**
+     * 导出一个导入模板
+     * 根据对象属性的注解生成一个只有表头的Excel导入模板
+     **/
+    public static <T> byte[] exportImportTemplate(Class<T> tClass) {
+        // 获取对象的属性名列表
+        List<Field> fieldsList = getExcelImportFields(tClass);
+        // 获取表头名称列表
+        List<String> headNameList = new ArrayList<>();
+        fieldsList.forEach(field -> {
+            if (field.getAnnotation(ExcelExportHeadName.class) != null) {
+                headNameList.add(field.getAnnotation(ExcelExportHeadName.class).value());
+            }
+        });
+        ExcelVO<T> excelVO = new ExcelVO<>();
+        List<T> data = new ArrayList<>();
+        excelVO.setSheetName("sheet1");
+        excelVO.setFieldsList(fieldsList);
+        excelVO.setHeadNameList(headNameList);
+        excelVO.setData(data);
+        return exportExcel(excelVO);
+    }
+
 
     /**
      * 输出工作簿到指定地址
@@ -115,6 +197,24 @@ public class ExcelUtils {
             // 创建工作簿
             SXSSFWorkbook workbook = new SXSSFWorkbook(new XSSFWorkbook(), ROW_ACCESS_WINDOW_SIZE);
             createSheetData(workbook.getXSSFWorkbook(), excelVO);
+            workbook.write(outputStream);
+            outputStream.close();
+        } catch (Exception e) {
+            log.error("导出Excel到{}异常， {}", filePath, e);
+        }
+    }
+
+    /**
+     * 输出工作簿到指定地址(动态合并表头sheet)
+     * param: excelVO : excel工具对象, 一个Sheet对应一个ExcelVO
+     * param: filePath : 本地下载excel文件路径地址， 可为null
+     **/
+    public static <T> void downloadMergeHeadExcel(List<MergeExcelVO> mergeExcelVOS, ExcelVO<T> excelVO, String filePath) {
+        try {
+            FileOutputStream outputStream = new FileOutputStream(filePath);
+            // 创建工作簿
+            SXSSFWorkbook workbook = new SXSSFWorkbook(new XSSFWorkbook(), ROW_ACCESS_WINDOW_SIZE);
+            createMergeHeadSheetData(workbook.getXSSFWorkbook(), mergeExcelVOS, excelVO);
             workbook.write(outputStream);
             outputStream.close();
         } catch (Exception e) {
@@ -167,6 +267,25 @@ public class ExcelUtils {
     /**
      * 导入Excel，保存为List对象列表
      * 配合自定义注解校验导入格式，导入的Excel表头需与属性顺序保持一致
+     * Param File 文件对象
+     * Param T: 应用对象
+     * Return Map<String, Object> {data: 导入的数据, error: 错误提示, header: 表头名称}
+     **/
+    public static <T> Map<String, Object> importExcelToList(MultipartFile file, Class<T> tClass) {
+        try {
+            SXSSFWorkbook workbook = new SXSSFWorkbook(new XSSFWorkbook(file.getInputStream()), 100);
+            XSSFSheet sheet = workbook.getXSSFWorkbook().getSheetAt(0);
+            return getSheetData(tClass, sheet);
+        } catch (Exception e) {
+            log.error("导入Excel异常， {}", e);
+        }
+        return new HashMap<>();
+    }
+
+
+    /**
+     * 导入Excel，保存为List对象列表
+     * 配合自定义注解校验导入格式，导入的Excel表头需与属性顺序保持一致
      * Param bytes 字节数组
      * Param T: 应用对象
      * Return Map<String, Object> {data: 导入的数据, error: 错误提示, header: 表头名称}
@@ -194,7 +313,7 @@ public class ExcelUtils {
         // 获取对象的属性名列表
         List<Field> fieldsList = getExcelImportFields(tClass);
         StringBuilder header = new StringBuilder();
-        Map<String, List<Object>> singleValueMap = new HashMap();
+        Map<String, List<Object>> singleValueMap = new HashMap<>();
         // 获取最后一行的num，即总行数
         for (int i = 0; i <= sheet.getLastRowNum(); i++) {
             XSSFRow row = sheet.getRow(i);
@@ -486,55 +605,198 @@ public class ExcelUtils {
 
 
     /**
-     * 创建Sheet 并写入数据
+     * 创建Sheet(包含动态表头)，并在动态表头后写入数据
      **/
-    private static <T> void createSheetData(XSSFWorkbook workbook, ExcelVO excelVO) {
-        if (excelVOIsNotEmpty(excelVO)) {
+    private static <T> void createMergeHeadSheetData(XSSFWorkbook workbook, List<MergeExcelVO> mergeExcelVOS, ExcelVO<T> excelVO) {
+        if (excelVOIsNotEmpty(excelVO) && CollectionUtils.isNotEmpty(mergeExcelVOS)) {
             // 创建工作表
             XSSFSheet sheet = workbook.createSheet(excelVO.getSheetName());
             sheet.setDefaultColumnWidth((short) 15);
-            // 居中且加边框的样式
-            XSSFCellStyle borderCenterStyle = getBorderCenterStyle(workbook);
-            // 只加边框的样式
-            XSSFCellStyle borderStyle = getBorderStyle(workbook);
-            // 表头样式
-            XSSFCellStyle headerStyle = getHeaderStyle(workbook);
+            // 创建动态表头
+            mergeHead(sheet, mergeExcelVOS, workbook);
+            // 创建正式数据
+            createData(workbook, sheet, excelVO, mergeExcelVOS.size());
+        }
+    }
 
-            List<T> data = excelVO.getData();
-            // 创建第一行表头
-            XSSFRow header = sheet.createRow(0);
-            List<String> headerList = excelVO.getHeadNameList();
-            for (int i = 0; i < headerList.size(); i++) {
-                XSSFCell cell = header.createCell(i);
-                cell.setCellStyle(headerStyle);
-                cell.setCellValue(headerList.get(i));
-                header.setHeightInPoints((short) 21); // 设置行高，单位：磅
+
+    /**
+     * 创建Sheet 并写入数据
+     **/
+    private static <T> void createSheetData(XSSFWorkbook workbook, ExcelVO<T> excelVO) {
+        if (excelVO.getData() != null) {
+            // 创建工作表
+            XSSFSheet sheet = workbook.createSheet(excelVO.getSheetName());
+            sheet.setDefaultColumnWidth((short) 15);
+            createData(workbook, sheet, excelVO, 0);
+        }
+    }
+
+
+    /**
+     * 写入sheet数据
+     **/
+    private static void createData(XSSFWorkbook workbook, Map map) {
+        // 创建工作表
+        XSSFSheet sheet = workbook.createSheet();
+        // sheet.setDefaultColumnWidth((short) 15); // 设置每一列固定列宽
+        // 表头样式
+        XSSFCellStyle headerStyle = getHeaderStyle(workbook, new java.awt.Color(0, 176, 80));
+        //存储最大列宽
+        Map<Integer, Integer> maxWidth = new HashMap<>();
+
+        // 创建正式数据表头(在动态表头后创建)
+        XSSFRow header = sheet.createRow(0);
+        header.setHeightInPoints((short) 21); // 设置行高，单位：磅
+        List<Map<String, Object>> headerList = (List<Map<String, Object>>) map.get("head");
+        for (int i = 0; i < headerList.size(); i++) {
+            XSSFCell cell = header.createCell(i);
+            cell.setCellStyle(headerStyle);
+            cell.setCellValue(headerList.get(i).get("label").toString());
+            maxWidth.put(i, cell.getStringCellValue().getBytes().length * 256 + 512); // 存放入表头的列宽
+        }
+        // sheet.createFreezePane(2, 1, 2, 1); // 冻结窗格
+        // 把list的数据写入到excel中
+        List<Map<String, Object>> data = (List<Map<String, Object>>) map.get("datas");
+        XSSFCellStyle cellStyle = workbook.createCellStyle();
+        setCellAllBorder(cellStyle); // 设置单元格都加上边框
+        XSSFDataFormat df = workbook.createDataFormat();
+        for (int i = 0; i < data.size(); i++) {
+            // 创建行，从第二行开始写入
+            XSSFRow row = sheet.createRow(i + 1);
+            //创建每个单元格Cell，即列的数据
+            for (int j = 0; j < headerList.size(); j++) {
+                XSSFCell cell = row.createCell(j);
+                Object value = data.get(i).get(headerList.get(j).get("prop").toString());
+                setCellValueByValueType(cell, value, cellStyle, df);
+                // 获取设置值之后的列宽
+                int length = getCellValue(cell).toString().getBytes().length * 256 + 512;
+                //这里把宽度最大限制到15000
+                if (length > 15000) {
+                    length = 15000;
+                }
+                maxWidth.put(j, Math.max(length, maxWidth.get(j))); //跟map中当前的列宽相比，存最大的列宽
             }
-            // 获取对象的属性名列表
-            List<Field> fieldsList = excelVO.getFieldsList();
-            // 把list的数据写入到excel中
-            for (int i = 0; i < data.size(); i++) {
-                // 创建行，从第二行开始写入
-                XSSFRow row = sheet.createRow(i + 1);
-                //创建每个单元格Cell，即列的数据
-                T po = data.get(i);
-                for (int j = 0; j < fieldsList.size(); j++) {
-                    XSSFCell cell = row.createCell(j);
-                    Field field = fieldsList.get(j);
-                    Object value = getFieldValueByName(po, field.getName());
-                    String genericType = field.getGenericType().toString();
-                    // 判断对象属性是否为数字类型, 设置单元格类型为数字格式
-                    if (genericType.equals("class java.lang.Integer") || genericType.equals("class java.lang.Double") || genericType.equals("class java.math.BigDecimal")) {
-                        cell.setCellStyle(borderCenterStyle);
-                        cell.setCellValue(value == null ? 0 : Double.valueOf(String.valueOf(value)));
-                    } else {
-                        cell.setCellStyle(borderStyle);
-                        cell.setCellValue(value == null ? "" : String.valueOf(value));
-                    }
+        }
+        // 设置每一列的最大宽度
+        for (int i = 0; i < headerList.size(); i++) {
+            sheet.setColumnWidth(i, maxWidth.get(i));
+        }
+    }
+
+
+    /**
+     * 根据数据类型填充单元格数据和单元格格式
+     **/
+    private static void setCellValueByValueType(Cell cell, Object value, XSSFCellStyle cellStyle, XSSFDataFormat df) {
+        boolean isNum = false; // value是否为数值型
+        boolean isInteger = false; // value是否为整数
+        boolean isPercent = false; // value是否为百分数
+        if (value != null && StringUtils.isNotBlank(value.toString())) {
+            //判断value是否为数值型
+            isNum = value.toString().matches("^(-?\\d+)(\\.\\d+)?$");
+            //判断value是否为整数（小数部分是否为0）
+            isInteger = value.toString().matches("^[-\\+]?[\\d]*$");
+            //判断value是否为百分数（是否包含“%”）
+            isPercent = value.toString().contains("%");
+        }
+        //如果单元格内容是数值类型，涉及到金钱（金额、本、利），则设置cell的类型为数值型，设置value的类型为数值类型
+        if (isNum && !isPercent) {
+            if (isInteger) {
+                cellStyle.setDataFormat(df.getFormat("##0")); //数据格式只显示整数
+            } else {
+                cellStyle.setDataFormat(df.getFormat("#,##0.00")); //保留两位小数点
+            }
+            // 设置单元格格式
+            cell.setCellStyle(cellStyle);
+            // 设置单元格内容为double类型
+            cell.setCellValue(Double.parseDouble(value.toString()));
+        } else {
+            cell.setCellStyle(cellStyle);
+            // 设置单元格内容为字符型
+            cell.setCellValue(value != null ? value.toString() : "");
+        }
+    }
+
+
+    /**
+     * 写入sheet数据
+     **/
+    private static <T> void createData(XSSFWorkbook workbook, XSSFSheet sheet, ExcelVO<T> excelVO, int headNum) {
+        // 居中且加边框的样式
+        XSSFCellStyle borderCenterStyle = getBorderCenterStyle(workbook);
+        // 只加边框的样式
+        XSSFCellStyle borderStyle = getBorderStyle(workbook);
+        // 表头样式
+        XSSFCellStyle headerStyle = getHeaderStyle(workbook, new java.awt.Color(0, 176, 80));
+        // 创建正式数据表头(在动态表头后创建)
+        XSSFRow header = sheet.createRow(headNum);
+        List<String> headerList = excelVO.getHeadNameList();
+        for (int i = 0; i < headerList.size(); i++) {
+            sheet.autoSizeColumn(i, true);
+            XSSFCell cell = header.createCell(i);
+            cell.setCellStyle(headerStyle);
+            cell.setCellValue(headerList.get(i));
+            header.setHeightInPoints((short) 21); // 设置行高，单位：磅
+        }
+        // 获取对象的属性名列表
+        List<Field> fieldsList = excelVO.getFieldsList();
+        // 把list的数据写入到excel中
+        List<T> data = excelVO.getData();
+        for (int i = 0; i < data.size(); i++) {
+            // 创建行，从第二行开始写入
+            XSSFRow row = sheet.createRow(i + (headNum + 1));
+            //创建每个单元格Cell，即列的数据
+            T po = data.get(i);
+            for (int j = 0; j < fieldsList.size(); j++) {
+                XSSFCell cell = row.createCell(j);
+                Field field = fieldsList.get(j);
+                Object value = getFieldValueByName(po, field.getName());
+                String genericType = field.getGenericType().toString();
+                // 判断对象属性是否为数字类型, 设置单元格类型为数字格式
+                if (genericType.equals("class java.lang.Integer") || genericType.equals("class java.lang.Double") || genericType.equals("class java.math.BigDecimal")) {
+                    cell.setCellStyle(borderCenterStyle);
+                    cell.setCellValue(value == null ? 0 : Double.valueOf(String.valueOf(value)));
+                } else {
+                    cell.setCellStyle(borderStyle);
+                    cell.setCellValue(value == null ? "" : String.valueOf(value));
                 }
             }
         }
     }
+
+
+    /**
+     * 动态合并表头
+     **/
+    private static void mergeHead(XSSFSheet sheet, List<MergeExcelVO> mergeExcelVOS, XSSFWorkbook workbook) {
+        // 合并表头样式
+        XSSFCellStyle headerStyle;
+        for (int v = 0; v < mergeExcelVOS.size(); v++) {
+            XSSFRow row = sheet.createRow(v);
+            MergeExcelVO vo = mergeExcelVOS.get(v);
+            for (int i = 0; i < vo.getMergeNum().length; i++) {
+                //动态合并单元格
+                String[] temp = vo.getMergeNum()[i].split(",");
+                int[] array = Arrays.stream(temp).mapToInt(Integer::parseInt).toArray();
+                if (array[3] - array[2] > 0) {
+                    sheet.addMergedRegion(new CellRangeAddress(array[0], array[1], array[2], array[3]));
+                    headerStyle = getHeaderStyle(workbook, new java.awt.Color(169, 208, 142)); // 区分合并单元格和不合并单元格的颜色样式
+                } else {
+                    headerStyle = getBorderCenterStyle(workbook);
+                }
+                // 在合并列的开始位置写入数据
+                for (int j = array[2]; j <= array[3]; j++) {
+                    XSSFCell cell = row.createCell(j);
+                    if (j == array[2]) {
+                        cell.setCellValue(vo.getHead()[i]);
+                    }
+                    cell.setCellStyle(headerStyle);
+                }
+            }
+        }
+    }
+
 
     /**
      * 判断vo是否为空
@@ -543,20 +805,21 @@ public class ExcelUtils {
         return excelVO != null && CollectionUtils.isNotEmpty(excelVO.getData()) && CollectionUtils.isNotEmpty(excelVO.getFieldsList()) && CollectionUtils.isNotEmpty(excelVO.getHeadNameList()) && StringUtils.isNotBlank(excelVO.getSheetName());
     }
 
+
     /**
-     * 设置表头样式
+     * 设置表头样式, 自定义颜色
      **/
-    private static XSSFCellStyle getHeaderStyle(XSSFWorkbook workbook) {
+    private static XSSFCellStyle getHeaderStyle(XSSFWorkbook workbook, java.awt.Color color) {
         XSSFCellStyle style = workbook.createCellStyle();
         XSSFFont font = workbook.createFont();
         // font.setBold(true); // 加粗
         font.setFontName("微软雅黑"); // 字体
-        font.setFontHeightInPoints((short) 11);
+        font.setFontHeightInPoints((short) 10);
         style.setFont(font);
         style.setAlignment(HorizontalAlignment.CENTER); // 水平居中
         style.setVerticalAlignment(VerticalAlignment.CENTER); // 垂直居中
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND); // 填充样式
-        style.setFillForegroundColor(new XSSFColor(new java.awt.Color(0, 176, 80))); // 前景色
+        style.setFillForegroundColor(new XSSFColor(color)); // 前景色
         setCellAllBorder(style);  // 加四周边框
         return style;
     }
@@ -566,6 +829,9 @@ public class ExcelUtils {
      **/
     private static XSSFCellStyle getBorderCenterStyle(XSSFWorkbook workbook) {
         XSSFCellStyle style = workbook.createCellStyle();
+        XSSFFont font = workbook.createFont();
+        font.setFontHeightInPoints((short) 10);
+        style.setFont(font);
         setCellAllBorder(style);  // 加四周边框
         style.setAlignment(HorizontalAlignment.CENTER); // 水平居中
         style.setVerticalAlignment(VerticalAlignment.CENTER); // 垂直居中
@@ -577,6 +843,9 @@ public class ExcelUtils {
      **/
     private static XSSFCellStyle getBorderStyle(XSSFWorkbook workbook) {
         XSSFCellStyle style = workbook.createCellStyle();
+        XSSFFont font = workbook.createFont();
+        font.setFontHeightInPoints((short) 10);
+        style.setFont(font);
         setCellAllBorder(style);  // 加四周边框
         return style;
     }
@@ -589,6 +858,45 @@ public class ExcelUtils {
         style.setBorderBottom(BorderStyle.THIN);
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
+    }
+
+
+    /**
+     * 让列宽随着导出的列长自动适应
+     **/
+    private void setClounmWithValue(XSSFSheet sheet, Integer columnNum){
+        //让列宽随着导出的列长自动适应
+        for (int colNum = 0; colNum < columnNum; colNum++) {
+            int columnWidth = sheet.getColumnWidth(colNum) / 256;
+            for (int rowNum = 0; rowNum < sheet.getLastRowNum(); rowNum++) {
+                XSSFRow currentRow;
+                //当前行未被使用过
+                if (sheet.getRow(rowNum) == null) {
+                    currentRow = sheet.createRow(rowNum);
+                } else {
+                    currentRow = sheet.getRow(rowNum);
+                }
+                if (currentRow.getCell(colNum).getRichStringCellValue() != null) {
+                    //取得当前的单元格
+                    XSSFCell currentCell = currentRow.getCell(colNum);
+                    int length = 0;
+                    //如果当前单元格类型为字符串
+                    if (currentCell.getCellType() == HSSFCell.CELL_TYPE_STRING) {
+                        try {
+                            length = currentCell.getStringCellValue().getBytes().length;
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                        if (columnWidth < length) {
+                            //将单元格里面值大小作为列宽度
+                            columnWidth = length;
+                        }
+                    }
+                }
+            }
+            //再根据不同列单独做下处理
+            sheet.setColumnWidth(colNum, (columnWidth + 2) * 256);
+        }
     }
 
 }

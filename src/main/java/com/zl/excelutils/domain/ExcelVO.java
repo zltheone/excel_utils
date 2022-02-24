@@ -3,6 +3,7 @@ package com.zl.excelutils.domain;
 import com.zl.excelutils.annotations.ExcelExportHeadName;
 import com.zl.excelutils.annotations.ExcelSheetName;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.springframework.util.CollectionUtils;
 
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
  */
 @Getter
 @Setter
+@NoArgsConstructor
 public class ExcelVO<T> {
 
     /** 表头名称列表 */
