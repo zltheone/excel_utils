@@ -12,6 +12,7 @@ import com.zl.excelutils.domain.MergeExcelVO;
 import com.zl.excelutils.enums.DataTypeDescEnum;
 import com.zl.excelutils.enums.ExcelReEnum;
 import com.zl.excelutils.enums.ExcelValueConvertEnum;
+import com.zl.excelutils.exp.ExcelUtilsException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -53,7 +54,6 @@ public class ExcelUtils {
      * return 字节数组
      **/
     public static <T> byte[] exportExcel(ExcelVO<T> excelVO) {
-        byte[] bytes = null;
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
             // 创建工作簿
@@ -61,9 +61,9 @@ public class ExcelUtils {
             createSheetData(workbook.getXSSFWorkbook(), excelVO);
             // 创建工作表
             workbook.write(outputStream);
-            bytes = outputStream.toByteArray();
+            return outputStream.toByteArray();
         } catch (Exception e) {
-            log.error("导出Excel异常 {}", e);
+            throw new ExcelUtilsException("导出Excel异常");
         } finally {
             try {
                 outputStream.flush();
@@ -72,7 +72,6 @@ public class ExcelUtils {
                 log.error("exportExcel关闭流异常 {}", e);
             }
         }
-        return bytes;
     }
 
 
@@ -81,19 +80,18 @@ public class ExcelUtils {
      * param: excelVOS : excel工具对象列表, 一个Sheet对应一个ExcelVO
      * return 字节数组
      **/
-    public static byte[] exportExcel(List<ExcelVO> excelVOS) {
-        byte[] bytes = null;
+    public static <T> byte[] exportExcel(List<ExcelVO<T>> excelVOS) {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
             // 创建工作簿
             SXSSFWorkbook workbook = new SXSSFWorkbook(new XSSFWorkbook(), ROW_ACCESS_WINDOW_SIZE);
-            for (ExcelVO excelVO : excelVOS) {
+            for (ExcelVO<T> excelVO : excelVOS) {
                 createSheetData(workbook.getXSSFWorkbook(), excelVO);
             }
             workbook.write(outputStream);
-            bytes = outputStream.toByteArray();
+            return outputStream.toByteArray();
         } catch (Exception e) {
-            log.error("导出Excel异常 {}", e);
+            throw new ExcelUtilsException("导出Excel异常");
         } finally {
             try {
                 outputStream.flush();
@@ -102,7 +100,6 @@ public class ExcelUtils {
                 log.error("exportExcel关闭流异常 {}", e);
             }
         }
-        return bytes;
     }
 
     /**
@@ -111,16 +108,15 @@ public class ExcelUtils {
      * return 字节数组
      **/
     public static <T> byte[] exportMergeHeadExcel(List<MergeExcelVO> mergeExcelVOS, ExcelVO<T> excelVO) {
-        byte[] bytes = null;
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
             // 创建工作簿
             SXSSFWorkbook workbook = new SXSSFWorkbook(ROW_ACCESS_WINDOW_SIZE);
             createMergeHeadSheetData(workbook.getXSSFWorkbook(), mergeExcelVOS, excelVO);
             workbook.write(outputStream);
-            bytes = outputStream.toByteArray();
+            return outputStream.toByteArray();
         } catch (Exception e) {
-            log.error("导出Excel异常 {}", e);
+            throw new ExcelUtilsException("导出Excel异常");
         } finally {
             try {
                 outputStream.flush();
@@ -129,7 +125,6 @@ public class ExcelUtils {
                 log.error("exportExcel关闭流异常 {}", e);
             }
         }
-        return bytes;
     }
 
 
@@ -139,7 +134,6 @@ public class ExcelUtils {
      * return 字节数组
      **/
     public static byte[] exportExcel(Map map) {
-        byte[] bytes = null;
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
             // 创建工作簿
@@ -147,9 +141,9 @@ public class ExcelUtils {
             createData(workbook, map);
             workbook.write(outputStream);
             // 返回字节流
-            bytes = outputStream.toByteArray();
+            return outputStream.toByteArray();
         } catch (Exception e) {
-            log.error("导出Excel异常 {}", e);
+            throw new ExcelUtilsException("导出Excel异常");
         } finally {
             try {
                 outputStream.flush();
@@ -158,7 +152,6 @@ public class ExcelUtils {
                 log.error("exportExcel关闭流异常 {}", e);
             }
         }
-        return bytes;
     }
 
 
@@ -191,16 +184,22 @@ public class ExcelUtils {
      * param: excelVO : excel工具对象, 一个Sheet对应一个ExcelVO
      * param: filePath : 本地下载excel文件路径地址， 可为null
      **/
-    public static void downloadExcel(ExcelVO excelVO, String filePath) {
+    public static <T> void downloadExcel(ExcelVO<T> excelVO, String filePath) {
+        FileOutputStream outputStream = null;
         try {
-            FileOutputStream outputStream = new FileOutputStream(filePath);
+            outputStream = new FileOutputStream(filePath);
             // 创建工作簿
             SXSSFWorkbook workbook = new SXSSFWorkbook(new XSSFWorkbook(), ROW_ACCESS_WINDOW_SIZE);
             createSheetData(workbook.getXSSFWorkbook(), excelVO);
             workbook.write(outputStream);
-            outputStream.close();
         } catch (Exception e) {
-            log.error("导出Excel到{}异常， {}", filePath, e);
+            throw new ExcelUtilsException("导出Excel到" + filePath + "异常");
+        }finally {
+            try {
+                outputStream.close();
+            } catch (IOException e) {
+                log.error("downloadExcel关闭流异常 {}", e);
+            }
         }
     }
 
@@ -210,15 +209,22 @@ public class ExcelUtils {
      * param: filePath : 本地下载excel文件路径地址， 可为null
      **/
     public static <T> void downloadMergeHeadExcel(List<MergeExcelVO> mergeExcelVOS, ExcelVO<T> excelVO, String filePath) {
+        FileOutputStream outputStream = null;
         try {
-            FileOutputStream outputStream = new FileOutputStream(filePath);
+            outputStream = new FileOutputStream(filePath);
             // 创建工作簿
             SXSSFWorkbook workbook = new SXSSFWorkbook(new XSSFWorkbook(), ROW_ACCESS_WINDOW_SIZE);
             createMergeHeadSheetData(workbook.getXSSFWorkbook(), mergeExcelVOS, excelVO);
             workbook.write(outputStream);
-            outputStream.close();
+
         } catch (Exception e) {
-            log.error("导出Excel到{}异常， {}", filePath, e);
+            throw new ExcelUtilsException("导出Excel到" + filePath + "异常");
+        }finally {
+            try {
+                outputStream.close();
+            } catch (IOException e) {
+                log.error("downloadMergeHeadExcel关闭流异常 {}", e);
+            }
         }
     }
 
@@ -229,17 +235,23 @@ public class ExcelUtils {
      * param: filePath : 本地下载excel文件路径地址， 可为null
      **/
     public static void downloadExcel(List<ExcelVO> excelVOS, String filePath) {
+        FileOutputStream outputStream = null;
         try {
-            FileOutputStream outputStream = new FileOutputStream(filePath);
+            outputStream = new FileOutputStream(filePath);
             // 创建工作簿
             SXSSFWorkbook workbook = new SXSSFWorkbook(new XSSFWorkbook(), ROW_ACCESS_WINDOW_SIZE);
             for (ExcelVO excelVO : excelVOS) {
                 createSheetData(workbook.getXSSFWorkbook(), excelVO);
             }
             workbook.write(outputStream);
-            outputStream.close();
         } catch (Exception e) {
-            log.error("导出Excel到{}异常， {}", filePath, e);
+            throw new ExcelUtilsException("导出Excel到" + filePath + "异常");
+        }finally {
+            try {
+                outputStream.close();
+            } catch (IOException e) {
+                log.error("downloadExcel关闭流异常 {}", e);
+            }
         }
     }
 
@@ -258,9 +270,8 @@ public class ExcelUtils {
             XSSFSheet sheet = workbook.getXSSFWorkbook().getSheetAt(0);
             return getSheetData(tClass, sheet);
         } catch (Exception e) {
-            log.error("从{}导入Excel异常， {}", filePath, e);
+            throw new ExcelUtilsException("从" + filePath + "导入Excel异常");
         }
-        return new HashMap<>();
     }
 
 
@@ -277,9 +288,8 @@ public class ExcelUtils {
             XSSFSheet sheet = workbook.getXSSFWorkbook().getSheetAt(0);
             return getSheetData(tClass, sheet);
         } catch (Exception e) {
-            log.error("导入Excel异常， {}", e);
+            throw new ExcelUtilsException("导入Excel异常");
         }
-        return new HashMap<>();
     }
 
 
@@ -297,9 +307,8 @@ public class ExcelUtils {
             XSSFSheet sheet = workbook.getXSSFWorkbook().getSheetAt(0);
             return getSheetData(tClass, sheet);
         } catch (Exception e) {
-            log.error("导入Excel异常， {}", e);
+            throw new ExcelUtilsException("导入Excel异常");
         }
-        return new HashMap<>();
     }
 
 
@@ -471,7 +480,7 @@ public class ExcelUtils {
                 cellValue = Convert.convert(field.getGenericType(), cellValue);
             } catch (Exception e) {
                 errorList.add("单元格格式不正确,请输入【" + DataTypeDescEnum.getDescByCode(typeName) + "】");
-                log.error("转换属性【{}】类型【{}】To 【{}】,单元格内容【{}】, 异常:{}", field.getName(), cellValue.getClass().getName(), typeName, cellValue, e);
+                throw new ExcelUtilsException("转换属性【"+ field.getName() +"】类型【"+ cellValue.getClass().getName() +"】To 【"+ typeName +"】,单元格内容【"+ cellValue +"】异常");
             }
         }
         vo.setCellError(StringUtils.join(errorList, ","));
@@ -510,7 +519,7 @@ public class ExcelUtils {
             Method method = o.getClass().getMethod(setter, value.getClass());
             method.invoke(o, value);
         } catch (Exception e) {
-            log.error("给对象【{}】的属性【{}】,设置【{}】,失败{}", o, fieldName, value, e);
+            throw new ExcelUtilsException("给对象【"+ o +"】的属性【"+ fieldName +"】,设置【"+ value +"】,失败");
         }
     }
 
@@ -523,12 +532,12 @@ public class ExcelUtils {
         try {
             String firstLetter = fieldName.substring(0, 1).toUpperCase();
             String getter = "get" + firstLetter + fieldName.substring(1);
-            Method method = o.getClass().getMethod(getter, new Class[]{});
+            Method method = o.getClass().getMethod(getter);
             return method.invoke(o);
         } catch (Exception e) {
             log.error("获取对象【{}】的属性【{}】值,失败{}", o, fieldName, e);
+            throw new ExcelUtilsException("获取对象【"+ o +"】的属性【"+ fieldName +"】值,失败");
         }
-        return null;
     }
 
     /**
