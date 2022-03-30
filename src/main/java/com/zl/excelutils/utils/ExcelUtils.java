@@ -133,6 +133,34 @@ public class ExcelUtils {
      * param: map{"head": List<Map<String, Object>>, "datas": List<Map<String, Object>}
      * return 字节数组
      **/
+    public static byte[] exportPropLableExcel(Map map) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            // 创建工作簿
+            XSSFWorkbook workbook = new SXSSFWorkbook(ROW_ACCESS_WINDOW_SIZE).getXSSFWorkbook();
+            createPropLabelData(workbook, map);
+            workbook.write(outputStream);
+            // 返回字节流
+            return outputStream.toByteArray();
+        } catch (Exception e) {
+            throw new ExcelUtilsException("导出Excel异常");
+        } finally {
+            try {
+                outputStream.flush();
+                outputStream.close();
+            } catch (Exception e) {
+                log.error("exportExcel关闭流异常 {}", e);
+            }
+        }
+    }
+
+
+    /**
+     * 导出Excel工具(一个Sheet使用)
+     * param: map{"head": <Map<String, Object>, "datas": List<Map<String, Object>}
+     * head中的key为List中的key字段名， value 为表头名称
+     * return 字节数组
+     **/
     public static byte[] exportExcel(Map map) {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
@@ -641,11 +669,64 @@ public class ExcelUtils {
         }
     }
 
+    /**
+     * 写入sheet数据，并设置自适应列宽
+     **/
+    private static void createData(XSSFWorkbook workbook, Map map) {
+        // 创建工作表
+        XSSFSheet sheet = workbook.createSheet();
+        // sheet.setDefaultColumnWidth((short) 15); // 设置每一列固定列宽
+        // 表头样式
+        XSSFCellStyle headerStyle = getHeaderStyle(workbook, new java.awt.Color(0, 176, 80));
+        //存储最大列宽
+        Map<Integer, Integer> maxWidth = new HashMap<>();
+
+        // 创建正式数据表头(在动态表头后创建)
+        XSSFRow header = sheet.createRow(0);
+        header.setHeightInPoints((short) 21); // 设置行高，单位：磅
+        Map<String, Object> headerMap = (Map<String, Object>) map.get("head");
+        int headerIndex = 0;
+        for (String key : headerMap.keySet()) {
+            XSSFCell cell = header.createCell(headerIndex);
+            cell.setCellStyle(headerStyle);
+            cell.setCellValue(headerMap.get(key).toString());
+            maxWidth.put(headerIndex, cell.getStringCellValue().getBytes().length * 256 + 512); // 存放入表头的列宽
+            headerIndex ++;
+        }
+        // sheet.createFreezePane(2, 1, 2, 1); // 冻结窗格
+        // 把list的数据写入到excel中
+        List<Map<String, Object>> datas = (List<Map<String, Object>>) map.get("datas");
+        for (int i = 0; i < datas.size(); i++) {
+            Map<String, Object> data = datas.get(i);
+            // 创建行，从第二行开始写入
+            XSSFRow row = sheet.createRow(i + 1);
+            //创建每个单元格Cell，即列的数据
+            int index = 0;
+            for (String key : headerMap.keySet()) {
+                XSSFCell cell = row.createCell(index);
+                Object value = data.get(key);
+                setCellValueByValueType(cell, value, workbook);
+                // 获取设置值之后的列宽
+                int length = getCellValue(cell).toString().getBytes().length * 256 + 512;
+                //这里把宽度最大限制到15000
+                if (length > 15000) {
+                    length = 15000;
+                }
+                maxWidth.put(index, Math.max(length, maxWidth.get(index))); //跟map中当前的列宽相比，存最大的列宽
+                index++;
+            }
+        }
+        // 设置每一列的最大宽度
+        for (int i = 0; i < headerMap.keySet().size(); i++) {
+            sheet.setColumnWidth(i, maxWidth.get(i));
+        }
+    }
+
 
     /**
      * 写入sheet数据
      **/
-    private static void createData(XSSFWorkbook workbook, Map map) {
+    private static void createPropLabelData(XSSFWorkbook workbook, Map map) {
         // 创建工作表
         XSSFSheet sheet = workbook.createSheet();
         // sheet.setDefaultColumnWidth((short) 15); // 设置每一列固定列宽
@@ -667,9 +748,6 @@ public class ExcelUtils {
         // sheet.createFreezePane(2, 1, 2, 1); // 冻结窗格
         // 把list的数据写入到excel中
         List<Map<String, Object>> data = (List<Map<String, Object>>) map.get("datas");
-        XSSFCellStyle cellStyle = workbook.createCellStyle();
-        setCellAllBorder(cellStyle); // 设置单元格都加上边框
-        XSSFDataFormat df = workbook.createDataFormat();
         for (int i = 0; i < data.size(); i++) {
             // 创建行，从第二行开始写入
             XSSFRow row = sheet.createRow(i + 1);
@@ -677,7 +755,7 @@ public class ExcelUtils {
             for (int j = 0; j < headerList.size(); j++) {
                 XSSFCell cell = row.createCell(j);
                 Object value = data.get(i).get(headerList.get(j).get("prop").toString());
-                setCellValueByValueType(cell, value, cellStyle, df);
+                setCellValueByValueType(cell, value, workbook);
                 // 获取设置值之后的列宽
                 int length = getCellValue(cell).toString().getBytes().length * 256 + 512;
                 //这里把宽度最大限制到15000
@@ -697,7 +775,7 @@ public class ExcelUtils {
     /**
      * 根据数据类型填充单元格数据和单元格格式
      **/
-    private static void setCellValueByValueType(Cell cell, Object value, XSSFCellStyle cellStyle, XSSFDataFormat df) {
+    private static void setCellValueByValueType(Cell cell, Object value, XSSFWorkbook workbook) {
         boolean isNum = false; // value是否为数值型
         boolean isInteger = false; // value是否为整数
         boolean isPercent = false; // value是否为百分数
@@ -711,6 +789,8 @@ public class ExcelUtils {
         }
         //如果单元格内容是数值类型，涉及到金钱（金额、本、利），则设置cell的类型为数值型，设置value的类型为数值类型
         if (isNum && !isPercent) {
+            XSSFCellStyle cellStyle = getBorderCenterStyle(workbook);
+            XSSFDataFormat df = workbook.createDataFormat();
             if (isInteger) {
                 cellStyle.setDataFormat(df.getFormat("##0")); //数据格式只显示整数
             } else {
@@ -718,9 +798,12 @@ public class ExcelUtils {
             }
             // 设置单元格格式
             cell.setCellStyle(cellStyle);
+            cellStyle.setAlignment(HorizontalAlignment.CENTER); // 水平居中
+            cellStyle.setVerticalAlignment(VerticalAlignment.CENTER); // 垂直居中
             // 设置单元格内容为double类型
             cell.setCellValue(Double.parseDouble(value.toString()));
         } else {
+            XSSFCellStyle cellStyle = getBorderStyle(workbook);
             cell.setCellStyle(cellStyle);
             // 设置单元格内容为字符型
             cell.setCellValue(value != null ? value.toString() : "");
@@ -766,6 +849,13 @@ public class ExcelUtils {
                 if (genericType.equals("class java.lang.Integer") || genericType.equals("class java.lang.Double") || genericType.equals("class java.math.BigDecimal")) {
                     cell.setCellStyle(borderCenterStyle);
                     cell.setCellValue(value == null ? 0 : Double.valueOf(String.valueOf(value)));
+                } else if (genericType.equals("class java.util.Date")) {
+                    cell.setCellStyle(borderStyle);
+                    if (field.getAnnotation(DateFormat.class) != null) {
+                        cell.setCellValue(value == null ? "" : DateUtils.formatDateToStr((Date) value, field.getAnnotation(DateFormat.class).pattern()));
+                    } else {
+                        cell.setCellValue(value == null ? "" : DateUtils.formatDateToStr((Date) value, "yyyy-MM-dd"));
+                    }
                 } else {
                     cell.setCellStyle(borderStyle);
                     cell.setCellValue(value == null ? "" : String.valueOf(value));
