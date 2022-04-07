@@ -20,6 +20,7 @@ import org.apache.poi.hssf.usermodel.HSSFCell;
 import org.apache.poi.hssf.usermodel.HSSFDateUtil;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.ss.util.NumberToTextConverter;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.apache.poi.xssf.usermodel.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -614,7 +615,7 @@ public class ExcelUtils {
                         Date date = cell.getDateCellValue();
                         cellValue = DateUtil.formatDate(date);
                     } else {
-                        cellValue = new BigDecimal(cell.getNumericCellValue());
+                        cellValue = NumberToTextConverter.toText(cell.getNumericCellValue());
                     }
                     break;
                 case STRING: // 字符串
