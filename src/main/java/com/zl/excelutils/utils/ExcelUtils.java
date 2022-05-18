@@ -131,7 +131,9 @@ public class ExcelUtils {
 
     /**
      * 导出Excel工具(一个Sheet使用)
-     * param: map{"head": List<Map<String, Object>>, "datas": List<Map<String, Object>}
+     * 支持表头顺序，写入sheet数据，并设置自适应列宽
+     * map: {"head": List<Map<String, Object>>, "data": List<Map<String, Object>>}
+     * headMap: {"prop": 属性名, "label": 表头名称}, dataMap: {属性名: value}
      * return 字节数组
      **/
     public static byte[] exportPropLableExcel(Map map) {
